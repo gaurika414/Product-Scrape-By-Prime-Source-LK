@@ -1,0 +1,12 @@
+﻿{
+  "name": "product-scrape-by-prime-source-lk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local PWA for extracting product details and product images from e-commerce screenshots.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

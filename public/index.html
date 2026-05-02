@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#111827">
+    <title>Product Scrape By Prime Source LK</title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Prime Source LK</p>
+          <h1>Product Scrape</h1>
+        </div>
+        <span id="statusPill" class="status-pill">Ready</span>
+      </header>
+
+      <section class="workspace">
+        <section class="upload-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Screenshot</p>
+              <h2>Upload Product Page</h2>
+            </div>
+            <button id="clearBtn" class="icon-button" type="button">Clear</button>
+          </div>
+
+          <label id="dropZone" class="drop-zone">
+            <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/*">
+            <span class="drop-title">Choose screenshot</span>
+            <span class="drop-subtitle">Temu, AliExpress, Shein, or any product page</span>
+          </label>
+
+          <div id="previewWrap" class="preview-wrap is-hidden">
+            <img id="previewImage" alt="Uploaded product screenshot preview">
+          </div>
+
+          <button id="analyzeBtn" class="primary-button" type="button" disabled>Analyze Screenshot</button>
+          <p id="errorText" class="error-text" role="alert"></p>
+        </section>
+
+        <section class="results-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Result</p>
+              <h2>Product Details</h2>
+            </div>
+            <button id="copyAllBtn" class="secondary-button" type="button" disabled>Copy All Text</button>
+          </div>
+
+          <div id="emptyState" class="empty-state">
+            <strong>No analysis yet</strong>
+            <span>Upload a product screenshot to extract details and crop visible product images.</span>
+          </div>
+
+          <div id="resultContent" class="result-content is-hidden">
+            <article class="summary-block">
+              <div>
+                <p id="sourcePlatform" class="eyebrow">Unknown source</p>
+                <h3 id="productTitle"></h3>
+              </div>
+              <strong id="priceText" class="price-text"></strong>
+            </article>
+            <div id="detailsGrid" class="details-grid"></div>
+            <section class="text-section">
+              <h3>Listing Text</h3>
+              <div class="caption-actions">
+                <button class="small-button" data-caption="facebook" type="button">Copy Facebook</button>
+                <button class="small-button" data-caption="instagram" type="button">Copy Instagram</button>
+                <button class="small-button" data-caption="tiktok" type="button">Copy TikTok</button>
+              </div>
+              <textarea id="fullTextOutput" readonly></textarea>
+            </section>
+            <section class="image-section">
+              <div class="section-head">
+                <h3>Product Images</h3>
+                <button id="downloadAllBtn" class="small-button" type="button" disabled>Download All</button>
+              </div>
+              <div id="imageGrid" class="image-grid"></div>
+            </section>
+          </div>
+        </section>
+      </section>
+    </main>
+    <script src="/app.js" defer></script>
+  </body>
+</html>
