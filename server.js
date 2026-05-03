@@ -8,6 +8,7 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 const MAX_BODY_BYTES = 28 * 1024 * 1024;
 
 loadDotEnv(path.join(__dirname, ".env"));
+loadDotEnv(path.join(__dirname, "apikey.env"));
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -85,8 +86,10 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {
         ok: true,
         app: APP_NAME,
-        model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
-        hasApiKey: Boolean(process.env.OPENAI_API_KEY)
+        provider: getAiProvider(),
+        model: getActiveModel(),
+        hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY),
+        ollamaUrl: process.env.OLLAMA_URL || "http://127.0.0.1:11434"
       });
     }
     if (req.method === "POST" && url.pathname === "/api/analyze") {
@@ -107,16 +110,26 @@ server.listen(PORT, "0.0.0.0", () => {
 });
 
 async function analyzeScreenshot(res, body) {
-  if (!process.env.OPENAI_API_KEY) {
-    return sendJson(res, 500, {
-      error: "Missing OPENAI_API_KEY",
-      detail: "Create a .env file from .env.example and add your OpenAI API key."
-    });
-  }
-
   const imageDataUrl = String(body && body.imageDataUrl ? body.imageDataUrl : "");
   if (!/^data:image\/(png|jpe?g|webp);base64,/i.test(imageDataUrl)) {
     return sendJson(res, 400, { error: "Invalid image", detail: "Upload a PNG, JPG, JPEG, or WEBP screenshot." });
+  }
+
+  const provider = getAiProvider();
+  if (provider === "ollama") return analyzeWithOllama(res, imageDataUrl);
+  if (provider === "openai") return analyzeWithOpenAI(res, imageDataUrl);
+  return sendJson(res, 400, {
+    error: "Invalid AI_PROVIDER",
+    detail: "Use AI_PROVIDER=ollama or AI_PROVIDER=openai."
+  });
+}
+
+async function analyzeWithOpenAI(res, imageDataUrl) {
+  if (!process.env.OPENAI_API_KEY) {
+    return sendJson(res, 500, {
+      error: "Missing OPENAI_API_KEY",
+      detail: "Add OPENAI_API_KEY to .env or switch AI_PROVIDER to ollama."
+    });
   }
 
   const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
@@ -164,10 +177,79 @@ async function analyzeScreenshot(res, body) {
   const extracted = JSON.parse(extractOutputText(apiData));
   return sendJson(res, 200, {
     ok: true,
+    provider: "openai",
     model,
     analyzedAt: new Date().toISOString(),
     result: normalizeExtraction(extracted)
   });
+}
+
+async function analyzeWithOllama(res, imageDataUrl) {
+  const model = process.env.OLLAMA_MODEL || "llama3.2-vision";
+  const ollamaUrl = (process.env.OLLAMA_URL || "http://127.0.0.1:11434").replace(/\/+$/, "");
+  const base64Image = imageDataUrl.replace(/^data:image\/(png|jpe?g|webp);base64,/i, "");
+  const prompt = [
+    "Analyze this full e-commerce product screenshot for resale listing preparation.",
+    "Return only valid JSON. Do not wrap it in markdown.",
+    "Extract every visible product detail exactly as shown.",
+    "Return tight image_regions for each visible product photo in the screenshot.",
+    "Coordinates must be integers from 0 to 1000 relative to the screenshot.",
+    "Create ready-to-copy Facebook, Instagram, and TikTok captions using only visible facts."
+  ].join(" ");
+
+  let apiResponse;
+  try {
+    apiResponse = await fetch(`${ollamaUrl}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        prompt,
+        images: [base64Image],
+        stream: false,
+        format: productSchema,
+        options: { temperature: 0.1 }
+      })
+    });
+  } catch {
+    return sendJson(res, 503, {
+      error: "Ollama is not running",
+      detail: `Start Ollama and run: ollama pull ${model}`
+    });
+  }
+
+  const responseText = await apiResponse.text();
+  if (!apiResponse.ok) {
+    return sendJson(res, apiResponse.status, { error: "Ollama request failed", detail: safeErrorText(responseText) });
+  }
+
+  const apiData = JSON.parse(responseText);
+  const extracted = JSON.parse(stripJsonFences(apiData.response || ""));
+  return sendJson(res, 200, {
+    ok: true,
+    provider: "ollama",
+    model,
+    analyzedAt: new Date().toISOString(),
+    result: normalizeExtraction(extracted)
+  });
+}
+
+function getAiProvider() {
+  return String(process.env.AI_PROVIDER || "ollama").trim().toLowerCase();
+}
+
+function getActiveModel() {
+  return getAiProvider() === "openai"
+    ? process.env.OPENAI_MODEL || "gpt-4.1-mini"
+    : process.env.OLLAMA_MODEL || "llama3.2-vision";
+}
+
+function stripJsonFences(text) {
+  return String(text)
+    .trim()
+    .replace(/^```(?:json)?/i, "")
+    .replace(/```$/i, "")
+    .trim();
 }
 
 function extractOutputText(apiData) {

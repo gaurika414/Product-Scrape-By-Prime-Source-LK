@@ -1,4 +1,4 @@
-const CACHE_NAME = "product-scrape-v0-1-0";
+const CACHE_NAME = "product-scrape-v0-2-0";
 const ASSETS = ["/", "/index.html", "/styles.css", "/app.js", "/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (event) => {

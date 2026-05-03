@@ -1,6 +1,6 @@
 # Product Scrape By Prime Source LK
 
-Product Scrape By Prime Source LK is a local web app for extracting product information from e-commerce screenshots. Version `v0.1.0` focuses on a simple single-screenshot workflow powered by OpenAI vision.
+Product Scrape By Prime Source LK is a local web app for extracting product information from e-commerce screenshots. Version `v0.2.0` adds dark mode and a free local AI option with Ollama while keeping OpenAI as an optional cloud provider.
 
 ## Features
 
@@ -10,13 +10,15 @@ Product Scrape By Prime Source LK is a local web app for extracting product info
 - Detect visible product image regions from the screenshot.
 - Copy or download cropped product images where supported by the browser.
 - Run locally with a lightweight Node.js server.
-- Includes a basic PWA manifest and service worker.
+- Dark mode interface.
+- Ollama local vision support.
+- Optional OpenAI cloud mode.
 
 ## Requirements
 
 - Node.js 20 or newer.
-- An OpenAI API key.
 - A modern browser.
+- Ollama for local AI mode, or an OpenAI API key for OpenAI mode.
 
 ## Setup
 
@@ -33,50 +35,42 @@ Create a local environment file:
 copy .env.example .env
 ```
 
-Edit `.env`:
+## Local AI Mode
+
+Install Ollama, then pull the vision model:
+
+```powershell
+ollama pull llama3.2-vision
+```
+
+Use this `.env` setup:
 
 ```env
+AI_PROVIDER=ollama
+OLLAMA_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=llama3.2-vision
+PORT=3077
+```
+
+## Optional OpenAI Mode
+
+```env
+AI_PROVIDER=openai
 OPENAI_API_KEY=sk-your-key-here
 OPENAI_MODEL=gpt-4.1-mini
 PORT=3077
 ```
 
-Start the app:
+## Start
 
 ```powershell
 node server.js
 ```
 
-Open the app:
+Open:
 
 ```text
 http://127.0.0.1:3077
-```
-
-## Usage
-
-1. Choose a product screenshot.
-2. Click `Analyze Screenshot`.
-3. Review the extracted details.
-4. Copy the generated text.
-5. Download or copy detected product images if available.
-
-## Project Structure
-
-```text
-.
-|-- public/
-|   |-- app.js
-|   |-- icon.svg
-|   |-- index.html
-|   |-- manifest.webmanifest
-|   |-- styles.css
-|   `-- sw.js
-|-- server.js
-|-- package.json
-|-- .env.example
-|-- CHANGELOG.md
-`-- README.md
 ```
 
 ## Security
