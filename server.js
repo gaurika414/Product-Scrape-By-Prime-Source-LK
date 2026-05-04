@@ -15,11 +15,11 @@ const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
-    ".webmanifest": "application/manifest+json; charset=utf-8",
-    ".svg": "image/svg+xml",
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg"
+  ".webmanifest": "application/manifest+json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg"
 };
 
 const productSchema = {
@@ -91,6 +91,7 @@ const server = http.createServer(async (req, res) => {
         app: APP_NAME,
         provider: getAiProvider(),
         model: getActiveModel(),
+        hasGeminiKey: Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
         hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY),
         ollamaUrl: process.env.OLLAMA_URL || "http://127.0.0.1:11434"
       });
@@ -125,24 +126,79 @@ async function analyzeScreenshot(res, body) {
     });
   }
 
-  const provider = getAiProvider();
+  const provider = getAiProvider(body);
+  if (provider === "gemini") return analyzeWithGemini(res, imageDataUrls, body);
   if (provider === "ollama") return analyzeWithOllama(res, imageDataUrls, body);
   if (provider === "openai") return analyzeWithOpenAI(res, imageDataUrls, body);
   return sendJson(res, 400, {
     error: "Invalid AI_PROVIDER",
-    detail: "Use AI_PROVIDER=ollama or AI_PROVIDER=openai."
+    detail: "Use AI_PROVIDER=gemini, AI_PROVIDER=ollama, or AI_PROVIDER=openai."
+  });
+}
+
+async function analyzeWithGemini(res, imageDataUrls, body) {
+  const apiKey = getRequestApiKey(body, "gemini") || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    return sendJson(res, 500, {
+      error: "Missing GEMINI_API_KEY",
+      detail: "Paste a Gemini API key in AI Settings or add GEMINI_API_KEY to .env/apikey.env."
+    });
+  }
+
+  const model = getRequestModel(body, "gemini") || process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const prompt = buildAnalysisPrompt(body);
+  const parts = [
+    { text: prompt },
+    ...imageDataUrls.map((imageDataUrl) => dataUrlToGeminiPart(imageDataUrl))
+  ];
+
+  const apiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    method: "POST",
+    headers: {
+      "x-goog-api-key": apiKey,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: "user",
+          parts
+        }
+      ],
+      generationConfig: {
+        temperature: 0.1,
+        responseMimeType: "application/json",
+        responseJsonSchema: productSchema
+      }
+    })
+  });
+
+  const responseText = await apiResponse.text();
+  if (!apiResponse.ok) {
+    return sendJson(res, apiResponse.status, { error: "Gemini request failed", detail: safeErrorText(responseText) });
+  }
+
+  const apiData = JSON.parse(responseText);
+  const extracted = parseJsonFromModelText(extractGeminiText(apiData));
+  return sendJson(res, 200, {
+    ok: true,
+    provider: "gemini",
+    model,
+    analyzedAt: new Date().toISOString(),
+    result: normalizeExtraction(extracted)
   });
 }
 
 async function analyzeWithOpenAI(res, imageDataUrls, body) {
-  if (!process.env.OPENAI_API_KEY) {
+  const apiKey = getRequestApiKey(body, "openai") || process.env.OPENAI_API_KEY;
+  if (!apiKey) {
     return sendJson(res, 500, {
       error: "Missing OPENAI_API_KEY",
-      detail: "Add OPENAI_API_KEY to .env or switch AI_PROVIDER to ollama."
+      detail: "Paste an OpenAI API key in AI Settings, add OPENAI_API_KEY to .env/apikey.env, or switch provider."
     });
   }
 
-  const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+  const model = getRequestModel(body, "openai") || process.env.OPENAI_MODEL || "gpt-4.1-mini";
   const prompt = buildAnalysisPrompt(body);
   const imageContent = imageDataUrls.map((imageUrl, index) => ({
     type: "input_image",
@@ -153,7 +209,7 @@ async function analyzeWithOpenAI(res, imageDataUrls, body) {
   const apiResponse = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+      "Authorization": `Bearer ${apiKey}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
@@ -194,8 +250,8 @@ async function analyzeWithOpenAI(res, imageDataUrls, body) {
 }
 
 async function analyzeWithOllama(res, imageDataUrls, body) {
-  const model = process.env.OLLAMA_MODEL || "llama3.2-vision";
-  const ollamaUrl = (process.env.OLLAMA_URL || "http://127.0.0.1:11434").replace(/\/+$/, "");
+  const model = getRequestModel(body, "ollama") || process.env.OLLAMA_MODEL || "llama3.2-vision";
+  const ollamaUrl = String((body && body.ollamaUrl) || process.env.OLLAMA_URL || "http://127.0.0.1:11434").replace(/\/+$/, "");
   const base64Images = imageDataUrls.map((imageDataUrl) => imageDataUrl.replace(/^data:image\/(png|jpe?g|webp);base64,/i, ""));
   const prompt = buildAnalysisPrompt(body);
 
@@ -236,8 +292,8 @@ async function analyzeWithOllama(res, imageDataUrls, body) {
   });
 }
 
-function getAiProvider() {
-  return String(process.env.AI_PROVIDER || "ollama").trim().toLowerCase();
+function getAiProvider(body) {
+  return String((body && body.provider) || process.env.AI_PROVIDER || "gemini").trim().toLowerCase();
 }
 
 function getRequestImages(body) {
@@ -269,9 +325,44 @@ function buildAnalysisPrompt(body) {
 }
 
 function getActiveModel() {
-  return getAiProvider() === "openai"
-    ? process.env.OPENAI_MODEL || "gpt-4.1-mini"
-    : process.env.OLLAMA_MODEL || "llama3.2-vision";
+  const provider = getAiProvider();
+  if (provider === "openai") return process.env.OPENAI_MODEL || "gpt-4.1-mini";
+  if (provider === "ollama") return process.env.OLLAMA_MODEL || "llama3.2-vision";
+  return process.env.GEMINI_MODEL || "gemini-2.5-flash";
+}
+
+function getRequestApiKey(body, provider) {
+  const keys = body && body.apiKeys && typeof body.apiKeys === "object" ? body.apiKeys : {};
+  const value = keys[provider] || body && body.apiKey;
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function getRequestModel(body, provider) {
+  const models = body && body.models && typeof body.models === "object" ? body.models : {};
+  const value = models[provider] || body && body.model;
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function dataUrlToGeminiPart(imageDataUrl) {
+  const match = String(imageDataUrl).match(/^data:(image\/(?:png|jpe?g|webp));base64,(.+)$/i);
+  if (!match) {
+    throw new Error("Invalid image data URL.");
+  }
+
+  const mimeType = match[1].toLowerCase() === "image/jpg" ? "image/jpeg" : match[1].toLowerCase();
+  return {
+    inlineData: {
+      mimeType,
+      data: match[2]
+    }
+  };
+}
+
+function extractGeminiText(apiData) {
+  const parts = apiData && apiData.candidates && apiData.candidates[0] && apiData.candidates[0].content
+    ? apiData.candidates[0].content.parts || []
+    : [];
+  return parts.map((part) => part.text || "").join("\n").trim();
 }
 
 function stripJsonFences(text) {

@@ -1,6 +1,6 @@
 # Product Scrape By Prime Source LK
 
-Product Scrape By Prime Source LK is a local web app for extracting product information from e-commerce screenshots. Version `v0.3.0` adds batch uploads and tall screenshot tiling for easier OCR on long product pages.
+Product Scrape By Prime Source LK is a local web app for extracting product information from e-commerce screenshots. Version `v0.4.0` adds Gemini as the recommended cloud AI provider and adds AI settings directly in the app.
 
 ## Features
 
@@ -14,16 +14,16 @@ Product Scrape By Prime Source LK is a local web app for extracting product info
 - Copy or download cropped product images where supported by the browser.
 - Resize and compress screenshots in the browser before analysis.
 - Tile tall screenshots into zoomed vertical sections for better text extraction.
+- Choose Gemini, OpenAI, or Ollama from the app interface.
+- Set the AI model, API key, and Ollama URL from the app interface.
 - Run locally with a lightweight Node.js server.
 - Dark mode interface.
-- Ollama local vision support.
-- Optional OpenAI cloud mode.
 
 ## Requirements
 
 - Node.js 20 or newer.
 - A modern browser.
-- Ollama for local AI mode, or an OpenAI API key for OpenAI mode.
+- A Gemini API key for the recommended cloud mode, an OpenAI API key for OpenAI mode, or Ollama for local AI mode.
 
 ## Setup
 
@@ -40,7 +40,39 @@ Create a local environment file:
 copy .env.example .env
 ```
 
-## Local AI Mode
+## Recommended Gemini Mode
+
+Get a Gemini API key:
+
+1. Open [Google AI Studio API Keys](https://aistudio.google.com/apikey).
+2. Sign in with your Google account.
+3. Click **Create API key**.
+4. Choose an existing Google Cloud project or let Google AI Studio create one.
+5. Copy the key and paste it into the app's AI Settings panel, or save it in your local `.env` file.
+
+Use this `.env` setup:
+
+```env
+AI_PROVIDER=gemini
+GEMINI_API_KEY=your-gemini-key-here
+GEMINI_MODEL=gemini-2.5-flash
+PORT=3077
+```
+
+You can also paste the Gemini API key in the app's AI Settings panel.
+
+## Optional OpenAI Mode
+
+Create an OpenAI API key from the [OpenAI API keys page](https://platform.openai.com/api-keys), then use it in the app's AI Settings panel or in `.env`.
+
+```env
+AI_PROVIDER=openai
+OPENAI_API_KEY=sk-your-key-here
+OPENAI_MODEL=gpt-4.1-mini
+PORT=3077
+```
+
+## Optional Ollama Local Mode
 
 Install Ollama, then pull the vision model:
 
@@ -54,15 +86,6 @@ Use this `.env` setup:
 AI_PROVIDER=ollama
 OLLAMA_URL=http://127.0.0.1:11434
 OLLAMA_MODEL=llama3.2-vision
-PORT=3077
-```
-
-## Optional OpenAI Mode
-
-```env
-AI_PROVIDER=openai
-OPENAI_API_KEY=sk-your-key-here
-OPENAI_MODEL=gpt-4.1-mini
 PORT=3077
 ```
 
@@ -80,4 +103,4 @@ http://127.0.0.1:3077
 
 ## Security
 
-Do not commit real API keys. Keep `.env` private and use `.env.example` as the public template.
+Do not commit real API keys. Keep `.env` and `apikey.env` private and use `.env.example` as the public template. Treat API keys like passwords and rotate them if they are ever exposed.

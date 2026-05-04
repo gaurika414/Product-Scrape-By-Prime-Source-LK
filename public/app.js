@@ -3,11 +3,19 @@ const MAX_FILE_BYTES = 20 * 1024 * 1024;
 
 const state = {
   items: [],
-  selectedIndex: 0
+  selectedIndex: 0,
+  settings: loadSettings()
 };
 
 const els = {
   fileInput: document.querySelector("#fileInput"),
+  providerSelect: document.querySelector("#providerSelect"),
+  modelInput: document.querySelector("#modelInput"),
+  apiKeyInput: document.querySelector("#apiKeyInput"),
+  apiKeyRow: document.querySelector("#apiKeyRow"),
+  ollamaUrlInput: document.querySelector("#ollamaUrlInput"),
+  ollamaUrlRow: document.querySelector("#ollamaUrlRow"),
+  saveSettingsBtn: document.querySelector("#saveSettingsBtn"),
   dropZone: document.querySelector("#dropZone"),
   previewWrap: document.querySelector("#previewWrap"),
   previewImage: document.querySelector("#previewImage"),
@@ -51,6 +59,8 @@ els.clearBtn.addEventListener("click", resetApp);
 els.copyAllBtn.addEventListener("click", () => copyText(getSelectedText(), "Copied current"));
 els.copyBatchBtn.addEventListener("click", () => copyText(buildBatchText(), "Copied batch"));
 els.downloadAllBtn.addEventListener("click", downloadAllImages);
+els.providerSelect.addEventListener("change", () => applyProviderDefaults(false));
+els.saveSettingsBtn.addEventListener("click", () => saveSettingsFromForm());
 
 document.querySelectorAll("[data-caption]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -65,6 +75,8 @@ if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   });
 }
+
+applySettingsToForm();
 
 async function setFiles(files) {
   clearError();
@@ -111,6 +123,7 @@ async function setFiles(files) {
 async function analyzeBatch() {
   if (!state.items.length) return;
 
+  saveSettingsFromForm(false);
   setBusy(true);
   clearError();
 
@@ -137,7 +150,18 @@ async function analyzeBatch() {
         body: JSON.stringify({
           imageName: item.file?.name || `screenshot-${index + 1}`,
           imageDataUrls: prepared.imageDataUrls,
-          tileNotes: prepared.tileNotes
+          tileNotes: prepared.tileNotes,
+          provider: state.settings.provider,
+          apiKeys: {
+            gemini: state.settings.geminiApiKey,
+            openai: state.settings.openaiApiKey
+          },
+          models: {
+            gemini: state.settings.geminiModel,
+            openai: state.settings.openaiModel,
+            ollama: state.settings.ollamaModel
+          },
+          ollamaUrl: state.settings.ollamaUrl
         })
       });
 
@@ -636,6 +660,68 @@ function resetApp() {
   els.copyBatchBtn.disabled = true;
   clearError();
   setStatus("Ready", "ready");
+}
+
+function loadSettings() {
+  const defaults = {
+    provider: "gemini",
+    geminiModel: "gemini-2.5-flash",
+    openaiModel: "gpt-4.1-mini",
+    ollamaModel: "llama3.2-vision",
+    ollamaUrl: "http://127.0.0.1:11434",
+    geminiApiKey: "",
+    openaiApiKey: ""
+  };
+
+  try {
+    return { ...defaults, ...JSON.parse(localStorage.getItem("productScrapeAiSettings") || "{}") };
+  } catch {
+    return defaults;
+  }
+}
+
+function applySettingsToForm() {
+  els.providerSelect.value = state.settings.provider || "gemini";
+  applyProviderDefaults(true);
+}
+
+function applyProviderDefaults(keepExistingModel) {
+  const provider = els.providerSelect.value;
+  state.settings.provider = provider;
+  els.apiKeyRow.classList.toggle("is-hidden", provider === "ollama");
+  els.ollamaUrlRow.classList.toggle("is-hidden", provider !== "ollama");
+
+  if (provider === "gemini") {
+    els.modelInput.value = keepExistingModel ? state.settings.geminiModel : "gemini-2.5-flash";
+    els.apiKeyInput.value = state.settings.geminiApiKey || "";
+    els.apiKeyInput.placeholder = "Paste Gemini API key";
+  } else if (provider === "openai") {
+    els.modelInput.value = keepExistingModel ? state.settings.openaiModel : "gpt-4.1-mini";
+    els.apiKeyInput.value = state.settings.openaiApiKey || "";
+    els.apiKeyInput.placeholder = "Paste OpenAI API key";
+  } else {
+    els.modelInput.value = keepExistingModel ? state.settings.ollamaModel : "llama3.2-vision";
+    els.ollamaUrlInput.value = state.settings.ollamaUrl || "http://127.0.0.1:11434";
+  }
+}
+
+function saveSettingsFromForm(showSaved = true) {
+  const provider = els.providerSelect.value;
+  state.settings.provider = provider;
+
+  if (provider === "gemini") {
+    state.settings.geminiModel = els.modelInput.value.trim() || "gemini-2.5-flash";
+    state.settings.geminiApiKey = els.apiKeyInput.value.trim();
+  } else if (provider === "openai") {
+    state.settings.openaiModel = els.modelInput.value.trim() || "gpt-4.1-mini";
+    state.settings.openaiApiKey = els.apiKeyInput.value.trim();
+  } else {
+    state.settings.ollamaModel = els.modelInput.value.trim() || "llama3.2-vision";
+    state.settings.ollamaUrl = els.ollamaUrlInput.value.trim() || "http://127.0.0.1:11434";
+  }
+
+  localStorage.setItem("productScrapeAiSettings", JSON.stringify(state.settings));
+  if (showSaved) setStatus("Settings saved", "done");
 }
 
 function readAsDataUrl(file) {

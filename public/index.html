@@ -34,6 +34,30 @@
             <span class="drop-subtitle">Temu, AliExpress, Shein, or any product pages</span>
           </label>
 
+          <section class="settings-panel" aria-label="AI settings">
+            <div class="field-row">
+              <label for="providerSelect">AI Provider</label>
+              <select id="providerSelect">
+                <option value="gemini">Gemini</option>
+                <option value="openai">OpenAI</option>
+                <option value="ollama">Ollama Local</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label for="modelInput">Model</label>
+              <input id="modelInput" type="text" autocomplete="off" spellcheck="false">
+            </div>
+            <div id="apiKeyRow" class="field-row">
+              <label for="apiKeyInput">API Key</label>
+              <input id="apiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste API key">
+            </div>
+            <div id="ollamaUrlRow" class="field-row is-hidden">
+              <label for="ollamaUrlInput">Ollama URL</label>
+              <input id="ollamaUrlInput" type="text" autocomplete="off" spellcheck="false">
+            </div>
+            <button id="saveSettingsBtn" class="small-button" type="button">Save AI Settings</button>
+          </section>
+
           <div id="fileList" class="file-list"></div>
 
           <div id="previewWrap" class="preview-wrap is-hidden">
