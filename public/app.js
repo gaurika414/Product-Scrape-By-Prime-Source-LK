@@ -1,8 +1,9 @@
+const MAX_FILES = 10;
+const MAX_FILE_BYTES = 20 * 1024 * 1024;
+
 const state = {
-  file: null,
-  imageDataUrl: "",
-  result: null,
-  crops: []
+  items: [],
+  selectedIndex: 0
 };
 
 const els = {
@@ -10,6 +11,7 @@ const els = {
   dropZone: document.querySelector("#dropZone"),
   previewWrap: document.querySelector("#previewWrap"),
   previewImage: document.querySelector("#previewImage"),
+  fileList: document.querySelector("#fileList"),
   analyzeBtn: document.querySelector("#analyzeBtn"),
   clearBtn: document.querySelector("#clearBtn"),
   errorText: document.querySelector("#errorText"),
@@ -17,6 +19,7 @@ const els = {
   emptyState: document.querySelector("#emptyState"),
   resultContent: document.querySelector("#resultContent"),
   copyAllBtn: document.querySelector("#copyAllBtn"),
+  copyBatchBtn: document.querySelector("#copyBatchBtn"),
   sourcePlatform: document.querySelector("#sourcePlatform"),
   productTitle: document.querySelector("#productTitle"),
   priceText: document.querySelector("#priceText"),
@@ -26,10 +29,7 @@ const els = {
   downloadAllBtn: document.querySelector("#downloadAllBtn")
 };
 
-els.fileInput.addEventListener("change", () => {
-  const [file] = els.fileInput.files || [];
-  if (file) setFile(file);
-});
+els.fileInput.addEventListener("change", () => setFiles(Array.from(els.fileInput.files || [])));
 
 els.dropZone.addEventListener("dragover", (event) => {
   event.preventDefault();
@@ -43,19 +43,19 @@ els.dropZone.addEventListener("dragleave", () => {
 els.dropZone.addEventListener("drop", (event) => {
   event.preventDefault();
   els.dropZone.classList.remove("is-dragover");
-  const [file] = event.dataTransfer.files || [];
-  if (file) setFile(file);
+  setFiles(Array.from(event.dataTransfer.files || []));
 });
 
-els.analyzeBtn.addEventListener("click", analyzeScreenshot);
+els.analyzeBtn.addEventListener("click", analyzeBatch);
 els.clearBtn.addEventListener("click", resetApp);
-els.copyAllBtn.addEventListener("click", () => copyText(els.fullTextOutput.value, "Copied"));
+els.copyAllBtn.addEventListener("click", () => copyText(getSelectedText(), "Copied current"));
+els.copyBatchBtn.addEventListener("click", () => copyText(buildBatchText(), "Copied batch"));
 els.downloadAllBtn.addEventListener("click", downloadAllImages);
 
 document.querySelectorAll("[data-caption]").forEach((button) => {
   button.addEventListener("click", () => {
     const key = button.getAttribute("data-caption");
-    const text = state.result?.social_listing_text?.[key] || "";
+    const text = getSelectedItem()?.result?.social_listing_text?.[key] || "";
     copyText(text, `Copied ${key}`);
   });
 });
@@ -66,64 +66,162 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-async function setFile(file) {
+async function setFiles(files) {
   clearError();
-  if (!file.type.startsWith("image/")) {
-    showError("Please choose an image screenshot.");
+  const images = files.filter((file) => file.type.startsWith("image/")).slice(0, MAX_FILES);
+
+  if (!images.length) {
+    showError("Please choose image screenshots.");
     return;
   }
-  if (file.size > 20 * 1024 * 1024) {
-    showError("Use a screenshot under 20 MB.");
-    return;
+
+  if (files.length > MAX_FILES) {
+    showError(`Only the first ${MAX_FILES} screenshots were added.`);
   }
-  state.file = file;
-  state.imageDataUrl = await readAsDataUrl(file);
-  state.result = null;
-  state.crops = [];
-  els.previewImage.src = state.imageDataUrl;
-  els.previewWrap.classList.remove("is-hidden");
-  els.analyzeBtn.disabled = false;
+
+  const nextItems = [];
+  for (const file of images) {
+    if (file.size > MAX_FILE_BYTES) {
+      showError(`${file.name} is over 20 MB and was skipped.`);
+      continue;
+    }
+
+    nextItems.push({
+      file,
+      dataUrl: await readAsDataUrl(file),
+      aiImages: [],
+      tileNotes: [],
+      result: null,
+      crops: [],
+      status: "Ready",
+      error: ""
+    });
+  }
+
+  state.items = nextItems;
+  state.selectedIndex = 0;
+  renderFileList();
+  renderSelectedPreview();
+  renderSelectedResult();
+  els.analyzeBtn.disabled = state.items.length === 0;
+  setBusy(false);
   setStatus("Ready", "ready");
 }
 
-async function analyzeScreenshot() {
-  if (!state.imageDataUrl) return;
+async function analyzeBatch() {
+  if (!state.items.length) return;
+
   setBusy(true);
   clearError();
-  setStatus("Analyzing", "working");
-  try {
-    const response = await fetch("/api/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        imageName: state.file?.name || "screenshot",
-        imageDataUrl: state.imageDataUrl
-      })
+
+  for (let index = 0; index < state.items.length; index += 1) {
+    const item = state.items[index];
+    state.selectedIndex = index;
+    item.status = "Preparing";
+    item.error = "";
+    renderFileList();
+    renderSelectedPreview();
+    renderSelectedResult();
+    setStatus(`${index + 1}/${state.items.length}`, "working");
+
+    try {
+      const prepared = await prepareImagesForAi(item.dataUrl);
+      item.aiImages = prepared.imageDataUrls;
+      item.tileNotes = prepared.tileNotes;
+      item.status = "Analyzing";
+      renderFileList();
+
+      const response = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageName: item.file?.name || `screenshot-${index + 1}`,
+          imageDataUrls: prepared.imageDataUrls,
+          tileNotes: prepared.tileNotes
+        })
+      });
+
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || payload.error || "Analysis failed");
+
+      item.result = payload.result;
+      item.crops = await cropProductImages(item.dataUrl, item.result.image_regions || []);
+      if (!item.crops.length) {
+        item.crops = await detectVisualCrops(item.dataUrl);
+      }
+      item.status = "Done";
+      renderFileList();
+      renderSelectedResult();
+    } catch (error) {
+      item.status = "Error";
+      item.error = error.message || String(error);
+      renderFileList();
+      renderSelectedResult();
+      showError(item.error);
+    }
+  }
+
+  const failed = state.items.filter((item) => item.status === "Error").length;
+  setBusy(false);
+  setStatus(failed ? `${failed} failed` : "Done", failed ? "error" : "done");
+}
+
+function renderFileList() {
+  els.fileList.innerHTML = "";
+
+  for (const [index, item] of state.items.entries()) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `file-item${index === state.selectedIndex ? " is-active" : ""}`;
+    button.innerHTML = `
+      <span>${escapeHtml(item.file.name)}</span>
+      <strong>${escapeHtml(item.status)}</strong>
+    `;
+    button.addEventListener("click", () => {
+      state.selectedIndex = index;
+      renderFileList();
+      renderSelectedPreview();
+      renderSelectedResult();
     });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.detail || payload.error || "Analysis failed");
-    state.result = payload.result;
-    state.crops = await cropProductImages(state.imageDataUrl, state.result.image_regions || []);
-    renderResult();
-    setStatus("Done", "done");
-  } catch (error) {
-    showError(error.message || String(error));
-    setStatus("Error", "error");
-  } finally {
-    setBusy(false);
+    els.fileList.appendChild(button);
   }
 }
 
-function renderResult() {
-  const result = state.result || {};
+function renderSelectedPreview() {
+  const item = getSelectedItem();
+
+  if (!item) {
+    els.previewImage.removeAttribute("src");
+    els.previewWrap.classList.add("is-hidden");
+    return;
+  }
+
+  els.previewImage.src = item.dataUrl;
+  els.previewWrap.classList.remove("is-hidden");
+}
+
+function renderSelectedResult() {
+  const item = getSelectedItem();
+
+  if (!item || !item.result) {
+    els.emptyState.classList.remove("is-hidden");
+    els.resultContent.classList.add("is-hidden");
+    els.copyAllBtn.disabled = true;
+    els.copyBatchBtn.disabled = !state.items.some((batchItem) => batchItem.result);
+    return;
+  }
+
+  const result = item.result || {};
   els.emptyState.classList.add("is-hidden");
   els.resultContent.classList.remove("is-hidden");
   els.copyAllBtn.disabled = false;
+  els.copyBatchBtn.disabled = !state.items.some((batchItem) => batchItem.result);
   els.sourcePlatform.textContent = result.source_platform || "Unknown source";
   els.productTitle.textContent = result.product_title || "Untitled product";
   els.priceText.textContent = compactJoin([result.currency, result.price]) || result.original_price || "";
 
   const detailItems = [
+    ["File", item.file.name],
     ["Brand", result.brand],
     ["Store", result.store_name],
     ["Original price", result.original_price],
@@ -152,9 +250,12 @@ function renderResult() {
 }
 
 function renderImages() {
+  const item = getSelectedItem();
+  const crops = item?.crops || [];
   els.imageGrid.innerHTML = "";
-  els.downloadAllBtn.disabled = state.crops.length === 0;
-  if (!state.crops.length) {
+  els.downloadAllBtn.disabled = crops.length === 0;
+
+  if (!crops.length) {
     els.imageGrid.innerHTML = `
       <div class="detail-item">
         <span>Images</span>
@@ -163,7 +264,8 @@ function renderImages() {
     `;
     return;
   }
-  for (const crop of state.crops) {
+
+  for (const crop of crops) {
     const card = document.createElement("article");
     card.className = "image-card";
     card.innerHTML = `
@@ -182,28 +284,249 @@ function renderImages() {
   }
 }
 
+async function prepareImagesForAi(dataUrl) {
+  const image = await loadImage(dataUrl);
+  const imageDataUrls = [resizeImage(image, 1200, 2600, "image/jpeg", 0.86)];
+  const tileNotes = [];
+
+  if (image.naturalHeight > 1500 || image.naturalHeight / image.naturalWidth > 2.1) {
+    const maxTiles = 7;
+    const tileHeight = Math.min(image.naturalHeight, Math.max(950, Math.round(image.naturalWidth * 1.55)));
+    const overlap = Math.round(tileHeight * 0.16);
+    let y = 0;
+    let tileNumber = 1;
+
+    while (y < image.naturalHeight && tileNumber <= maxTiles) {
+      const height = Math.min(tileHeight, image.naturalHeight - y);
+      if (height < 260) break;
+
+      imageDataUrls.push(cropToDataUrl(image, 0, y, image.naturalWidth, height, 1200, "image/jpeg", 0.9));
+      tileNotes.push({
+        image_index: imageDataUrls.length,
+        label: `vertical tile ${tileNumber}`,
+        y_start_percent: Math.round((y / image.naturalHeight) * 100),
+        y_end_percent: Math.round(((y + height) / image.naturalHeight) * 100)
+      });
+
+      if (y + height >= image.naturalHeight) break;
+      y += tileHeight - overlap;
+      tileNumber += 1;
+    }
+  }
+
+  return { imageDataUrls, tileNotes };
+}
+
+function resizeImage(image, maxWidth, maxHeight, mimeType, quality) {
+  const scale = Math.min(1, maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(image, 0, 0, width, height);
+  return canvas.toDataURL(mimeType, quality);
+}
+
+function cropToDataUrl(image, x, y, width, height, maxWidth, mimeType, quality) {
+  const scale = Math.min(1, maxWidth / width);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(width * scale));
+  canvas.height = Math.max(1, Math.round(height * scale));
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(image, x, y, width, height, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL(mimeType, quality);
+}
+
 async function cropProductImages(dataUrl, regions) {
   const image = await loadImage(dataUrl);
   const crops = [];
+  const seen = new Set();
+
   for (const [index, region] of regions.entries()) {
     const sourceX = Math.round((Number(region.x) / 1000) * image.naturalWidth);
     const sourceY = Math.round((Number(region.y) / 1000) * image.naturalHeight);
     const sourceW = Math.round((Number(region.width) / 1000) * image.naturalWidth);
     const sourceH = Math.round((Number(region.height) / 1000) * image.naturalHeight);
-    if (sourceW < 40 || sourceH < 40) continue;
-    const canvas = document.createElement("canvas");
-    canvas.width = sourceW;
-    canvas.height = sourceH;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(image, sourceX, sourceY, sourceW, sourceH, 0, 0, sourceW, sourceH);
-    const label = region.label || `Product image ${index + 1}`;
-    crops.push({
-      label,
-      dataUrl: canvas.toDataURL("image/png"),
-      filename: `${slugify(label)}-${index + 1}.png`
-    });
+    const box = constrainBox(sourceX, sourceY, sourceW, sourceH, image.naturalWidth, image.naturalHeight);
+    const key = `${Math.round(box.x / 10)}-${Math.round(box.y / 10)}-${Math.round(box.w / 10)}-${Math.round(box.h / 10)}`;
+
+    if (seen.has(key) || box.w < 40 || box.h < 40) continue;
+    seen.add(key);
+    crops.push(makeCrop(image, box, region.label || `Product image ${index + 1}`, index + 1));
   }
+
   return crops;
+}
+
+async function detectVisualCrops(dataUrl) {
+  const image = await loadImage(dataUrl);
+  const scanWidth = 260;
+  const scale = scanWidth / image.naturalWidth;
+  const scanHeight = Math.max(1, Math.round(image.naturalHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = scanWidth;
+  canvas.height = scanHeight;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(image, 0, 0, scanWidth, scanHeight);
+  const { data } = ctx.getImageData(0, 0, scanWidth, scanHeight);
+  const mask = new Uint8Array(scanWidth * scanHeight);
+
+  for (let y = 0; y < scanHeight; y += 1) {
+    for (let x = 0; x < scanWidth; x += 1) {
+      const index = (y * scanWidth + x) * 4;
+      const r = data[index];
+      const g = data[index + 1];
+      const b = data[index + 2];
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const chroma = max - min;
+      const dark = max < 86;
+      const colorful = chroma > 24 && max > 70;
+      const midTone = max > 80 && max < 238 && min < 225;
+
+      if ((colorful || midTone || dark) && !(r > 235 && g > 235 && b > 235)) {
+        mask[y * scanWidth + x] = 1;
+      }
+    }
+  }
+
+  const components = connectedComponents(mask, scanWidth, scanHeight)
+    .map((box) => ({
+      x: Math.max(0, Math.round(box.x / scale) - 12),
+      y: Math.max(0, Math.round(box.y / scale) - 12),
+      w: Math.min(image.naturalWidth, Math.round(box.w / scale) + 24),
+      h: Math.min(image.naturalHeight, Math.round(box.h / scale) + 24),
+      area: box.w * box.h
+    }))
+    .filter((box) => {
+      const areaRatio = (box.w * box.h) / (image.naturalWidth * image.naturalHeight);
+      const aspect = box.w / box.h;
+      return box.w > 70 && box.h > 70 && areaRatio > 0.008 && areaRatio < 0.45 && aspect > 0.22 && aspect < 4.2;
+    })
+    .sort((a, b) => b.area - a.area)
+    .slice(0, 8);
+
+  return components.map((box, index) => makeCrop(image, box, `Detected product image ${index + 1}`, index + 1));
+}
+
+function connectedComponents(mask, width, height) {
+  const visited = new Uint8Array(mask.length);
+  const boxes = [];
+  const queue = [];
+  const neighbors = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+  for (let start = 0; start < mask.length; start += 1) {
+    if (!mask[start] || visited[start]) continue;
+
+    let minX = width;
+    let minY = height;
+    let maxX = 0;
+    let maxY = 0;
+    let count = 0;
+    queue.length = 0;
+    queue.push(start);
+    visited[start] = 1;
+
+    while (queue.length) {
+      const current = queue.pop();
+      const x = current % width;
+      const y = Math.floor(current / width);
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+      count += 1;
+
+      for (const [dx, dy] of neighbors) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+
+        const next = ny * width + nx;
+        if (mask[next] && !visited[next]) {
+          visited[next] = 1;
+          queue.push(next);
+        }
+      }
+    }
+
+    if (count > 80) {
+      boxes.push({ x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 });
+    }
+  }
+
+  return mergeNearbyBoxes(boxes, width, height);
+}
+
+function mergeNearbyBoxes(boxes, width, height) {
+  const expanded = boxes.map((box) => ({
+    x: Math.max(0, box.x - 4),
+    y: Math.max(0, box.y - 4),
+    w: Math.min(width - box.x, box.w + 8),
+    h: Math.min(height - box.y, box.h + 8)
+  }));
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let i = 0; i < expanded.length; i += 1) {
+      for (let j = i + 1; j < expanded.length; j += 1) {
+        if (!boxesOverlap(expanded[i], expanded[j])) continue;
+
+        expanded[i] = unionBox(expanded[i], expanded[j]);
+        expanded.splice(j, 1);
+        changed = true;
+        break;
+      }
+      if (changed) break;
+    }
+  }
+
+  return expanded;
+}
+
+function boxesOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function unionBox(a, b) {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  const right = Math.max(a.x + a.w, b.x + b.w);
+  const bottom = Math.max(a.y + a.h, b.y + b.h);
+  return { x, y, w: right - x, h: bottom - y };
+}
+
+function makeCrop(image, box, label, index) {
+  const safeBox = constrainBox(box.x, box.y, box.w, box.h, image.naturalWidth, image.naturalHeight);
+  const canvas = document.createElement("canvas");
+  canvas.width = safeBox.w;
+  canvas.height = safeBox.h;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(image, safeBox.x, safeBox.y, safeBox.w, safeBox.h, 0, 0, safeBox.w, safeBox.h);
+
+  return {
+    label,
+    dataUrl: canvas.toDataURL("image/png"),
+    filename: `${slugify(label || "product-image")}-${index}.png`
+  };
+}
+
+function constrainBox(x, y, w, h, imageW, imageH) {
+  const pad = 4;
+  const nextX = Math.max(0, x - pad);
+  const nextY = Math.max(0, y - pad);
+  const maxW = imageW - nextX;
+  const maxH = imageH - nextY;
+
+  return {
+    x: nextX,
+    y: nextY,
+    w: Math.max(1, Math.min(maxW, w + pad * 2)),
+    h: Math.max(1, Math.min(maxH, h + pad * 2))
+  };
 }
 
 function buildFullText(result) {
@@ -222,25 +545,43 @@ function buildFullText(result) {
   addLine(lines, "Delivery", result.delivery);
   addLine(lines, "Returns", result.returns_policy);
   addLine(lines, "Stock", result.stock_status);
+
   if (hasText(result.visible_description)) lines.push("", "Description:", result.visible_description);
+
   if (result.key_bullets?.length) {
     lines.push("", "Key Details:");
     result.key_bullets.forEach((item) => lines.push(`- ${item}`));
   }
+
   if (result.product_specs?.length) {
     lines.push("", "Specifications:");
     result.product_specs.forEach((spec) => lines.push(`- ${spec.name}: ${spec.value}`));
   }
+
   if (result.social_listing_text) {
     lines.push("", "Facebook:", result.social_listing_text.facebook || "");
     lines.push("", "Instagram:", result.social_listing_text.instagram || "");
     lines.push("", "TikTok:", result.social_listing_text.tiktok || "");
   }
+
   if (result.missing_or_unclear?.length) {
     lines.push("", "Missing or unclear:");
     result.missing_or_unclear.forEach((item) => lines.push(`- ${item}`));
   }
+
   return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function buildBatchText() {
+  return state.items
+    .filter((item) => item.result)
+    .map((item, index) => `Product ${index + 1}: ${item.file.name}\n\n${buildFullText(item.result)}`)
+    .join("\n\n------------------------------\n\n");
+}
+
+function getSelectedText() {
+  const item = getSelectedItem();
+  return item?.result ? buildFullText(item.result) : "";
 }
 
 function addLine(lines, label, value) {
@@ -255,13 +596,21 @@ function compactJoin(values) {
   return values.filter(hasText).join(" ").trim();
 }
 
-function setBusy(isBusy) {
-  els.analyzeBtn.disabled = isBusy || !state.imageDataUrl;
-  els.analyzeBtn.textContent = isBusy ? "Analyzing..." : "Analyze Screenshot";
+function getSelectedItem() {
+  return state.items[state.selectedIndex] || null;
 }
 
-function setStatus(text) {
+function setBusy(isBusy) {
+  els.analyzeBtn.disabled = isBusy || !state.items.length;
+  els.analyzeBtn.textContent = isBusy
+    ? "Analyzing Batch..."
+    : `Analyze ${state.items.length || ""} Screenshot${state.items.length === 1 ? "" : "s"}`.trim();
+  els.clearBtn.disabled = isBusy;
+}
+
+function setStatus(text, mode) {
   els.statusPill.textContent = text;
+  els.statusPill.className = `status-pill${mode ? ` is-${mode}` : ""}`;
 }
 
 function showError(message) {
@@ -273,19 +622,20 @@ function clearError() {
 }
 
 function resetApp() {
-  state.file = null;
-  state.imageDataUrl = "";
-  state.result = null;
-  state.crops = [];
+  state.items = [];
+  state.selectedIndex = 0;
   els.fileInput.value = "";
+  els.fileList.innerHTML = "";
   els.previewImage.removeAttribute("src");
   els.previewWrap.classList.add("is-hidden");
   els.analyzeBtn.disabled = true;
+  els.analyzeBtn.textContent = "Analyze Screenshots";
   els.emptyState.classList.remove("is-hidden");
   els.resultContent.classList.add("is-hidden");
   els.copyAllBtn.disabled = true;
+  els.copyBatchBtn.disabled = true;
   clearError();
-  setStatus("Ready");
+  setStatus("Ready", "ready");
 }
 
 function readAsDataUrl(file) {
@@ -308,23 +658,38 @@ function loadImage(src) {
 
 async function copyText(text, status = "Copied") {
   if (!text) return;
-  await navigator.clipboard.writeText(text);
-  setStatus(status);
+
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    els.fullTextOutput.focus();
+    els.fullTextOutput.select();
+    document.execCommand("copy");
+  }
+
+  setStatus(status, "done");
 }
 
 async function copyImage(crop) {
   try {
+    if (!navigator.clipboard || !window.ClipboardItem) {
+      throw new Error("Image clipboard is not supported in this browser.");
+    }
+
     const blob = await (await fetch(crop.dataUrl)).blob();
     await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
-    setStatus("Image copied");
+    setStatus("Image copied", "done");
   } catch {
     downloadDataUrl(crop.dataUrl, crop.filename);
-    setStatus("Downloaded");
+    setStatus("Downloaded", "done");
   }
 }
 
 function downloadAllImages() {
-  state.crops.forEach((crop, index) => {
+  const item = getSelectedItem();
+  if (!item) return;
+
+  item.crops.forEach((crop, index) => {
     window.setTimeout(() => downloadDataUrl(crop.dataUrl, crop.filename), index * 160);
   });
 }

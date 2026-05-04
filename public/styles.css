@@ -97,6 +97,24 @@ button:disabled {
   text-align: center;
 }
 
+.status-pill.is-working {
+  border-color: #facc15;
+  color: #fef3c7;
+  background: #523c0a;
+}
+
+.status-pill.is-done {
+  border-color: #99f6e4;
+  color: var(--accent-dark);
+  background: var(--accent-soft);
+}
+
+.status-pill.is-error {
+  border-color: #7f1d1d;
+  color: var(--warn);
+  background: #35131a;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(320px, 0.8fr) minmax(0, 1.2fr);
@@ -138,6 +156,13 @@ button:disabled {
   padding: 9px 12px;
 }
 
+.result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .primary-button {
   width: 100%;
   min-height: 48px;
@@ -160,6 +185,11 @@ button:disabled {
   text-align: center;
 }
 
+.drop-zone.is-dragover {
+  border-color: var(--accent);
+  background: #143d3a;
+}
+
 .drop-zone input {
   position: absolute;
   width: 1px;
@@ -172,6 +202,46 @@ button:disabled {
   color: var(--text);
   font-size: 20px;
   font-weight: 850;
+}
+
+.file-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #0d1422;
+  color: var(--text);
+  padding: 9px 11px;
+  text-align: left;
+}
+
+.file-item.is-active {
+  border-color: var(--accent);
+  background: #102c2e;
+}
+
+.file-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-item strong {
+  flex: 0 0 auto;
+  color: var(--accent-dark);
+  font-size: 12px;
+  text-transform: uppercase;
 }
 
 .drop-subtitle,
@@ -200,6 +270,9 @@ button:disabled {
   color: var(--warn);
   font-weight: 700;
   line-height: 1.45;
+  max-height: 160px;
+  overflow: auto;
+  overflow-wrap: anywhere;
 }
 
 .empty-state {
@@ -343,5 +416,24 @@ textarea {
 
   .upload-panel {
     position: static;
+  }
+}
+
+@media (max-width: 560px) {
+  .topbar,
+  .panel-head,
+  .section-head,
+  .summary-block {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .price-text {
+    text-align: left;
+  }
+
+  .details-grid,
+  .image-grid {
+    grid-template-columns: 1fr;
   }
 }

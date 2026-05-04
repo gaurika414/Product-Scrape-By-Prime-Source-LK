@@ -5,7 +5,7 @@ const path = require("node:path");
 const APP_NAME = "Product Scrape By Prime Source LK";
 const PORT = Number(process.env.PORT || 3077);
 const PUBLIC_DIR = path.join(__dirname, "public");
-const MAX_BODY_BYTES = 28 * 1024 * 1024;
+const MAX_BODY_BYTES = 48 * 1024 * 1024;
 
 loadDotEnv(path.join(__dirname, ".env"));
 loadDotEnv(path.join(__dirname, "apikey.env"));
@@ -15,8 +15,11 @@ const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
-  ".webmanifest": "application/manifest+json; charset=utf-8",
-  ".svg": "image/svg+xml"
+    ".webmanifest": "application/manifest+json; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg"
 };
 
 const productSchema = {
@@ -110,21 +113,28 @@ server.listen(PORT, "0.0.0.0", () => {
 });
 
 async function analyzeScreenshot(res, body) {
-  const imageDataUrl = String(body && body.imageDataUrl ? body.imageDataUrl : "");
-  if (!/^data:image\/(png|jpe?g|webp);base64,/i.test(imageDataUrl)) {
+  const imageDataUrls = getRequestImages(body);
+  if (!imageDataUrls.length) {
     return sendJson(res, 400, { error: "Invalid image", detail: "Upload a PNG, JPG, JPEG, or WEBP screenshot." });
   }
 
+  if (imageDataUrls.length > 8) {
+    return sendJson(res, 400, {
+      error: "Too many analysis images",
+      detail: "Each screenshot can include one resized original plus up to 7 zoom tiles."
+    });
+  }
+
   const provider = getAiProvider();
-  if (provider === "ollama") return analyzeWithOllama(res, imageDataUrl);
-  if (provider === "openai") return analyzeWithOpenAI(res, imageDataUrl);
+  if (provider === "ollama") return analyzeWithOllama(res, imageDataUrls, body);
+  if (provider === "openai") return analyzeWithOpenAI(res, imageDataUrls, body);
   return sendJson(res, 400, {
     error: "Invalid AI_PROVIDER",
     detail: "Use AI_PROVIDER=ollama or AI_PROVIDER=openai."
   });
 }
 
-async function analyzeWithOpenAI(res, imageDataUrl) {
+async function analyzeWithOpenAI(res, imageDataUrls, body) {
   if (!process.env.OPENAI_API_KEY) {
     return sendJson(res, 500, {
       error: "Missing OPENAI_API_KEY",
@@ -133,13 +143,12 @@ async function analyzeWithOpenAI(res, imageDataUrl) {
   }
 
   const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
-  const prompt = [
-    "Analyze this full e-commerce product screenshot for resale listing preparation.",
-    "Extract every visible product detail exactly as shown.",
-    "Return tight image_regions for each visible product photo in the screenshot.",
-    "Coordinates must be integers from 0 to 1000 relative to the screenshot.",
-    "Create ready-to-copy Facebook, Instagram, and TikTok captions using only visible facts."
-  ].join(" ");
+  const prompt = buildAnalysisPrompt(body);
+  const imageContent = imageDataUrls.map((imageUrl, index) => ({
+    type: "input_image",
+    image_url: imageUrl,
+    detail: index === 0 ? "high" : "auto"
+  }));
 
   const apiResponse = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -154,7 +163,7 @@ async function analyzeWithOpenAI(res, imageDataUrl) {
           role: "user",
           content: [
             { type: "input_text", text: prompt },
-            { type: "input_image", image_url: imageDataUrl, detail: "high" }
+            ...imageContent
           ]
         }
       ],
@@ -174,7 +183,7 @@ async function analyzeWithOpenAI(res, imageDataUrl) {
   }
 
   const apiData = JSON.parse(responseText);
-  const extracted = JSON.parse(extractOutputText(apiData));
+  const extracted = parseJsonFromModelText(extractOutputText(apiData));
   return sendJson(res, 200, {
     ok: true,
     provider: "openai",
@@ -184,18 +193,11 @@ async function analyzeWithOpenAI(res, imageDataUrl) {
   });
 }
 
-async function analyzeWithOllama(res, imageDataUrl) {
+async function analyzeWithOllama(res, imageDataUrls, body) {
   const model = process.env.OLLAMA_MODEL || "llama3.2-vision";
   const ollamaUrl = (process.env.OLLAMA_URL || "http://127.0.0.1:11434").replace(/\/+$/, "");
-  const base64Image = imageDataUrl.replace(/^data:image\/(png|jpe?g|webp);base64,/i, "");
-  const prompt = [
-    "Analyze this full e-commerce product screenshot for resale listing preparation.",
-    "Return only valid JSON. Do not wrap it in markdown.",
-    "Extract every visible product detail exactly as shown.",
-    "Return tight image_regions for each visible product photo in the screenshot.",
-    "Coordinates must be integers from 0 to 1000 relative to the screenshot.",
-    "Create ready-to-copy Facebook, Instagram, and TikTok captions using only visible facts."
-  ].join(" ");
+  const base64Images = imageDataUrls.map((imageDataUrl) => imageDataUrl.replace(/^data:image\/(png|jpe?g|webp);base64,/i, ""));
+  const prompt = buildAnalysisPrompt(body);
 
   let apiResponse;
   try {
@@ -205,7 +207,7 @@ async function analyzeWithOllama(res, imageDataUrl) {
       body: JSON.stringify({
         model,
         prompt,
-        images: [base64Image],
+        images: base64Images,
         stream: false,
         format: productSchema,
         options: { temperature: 0.1 }
@@ -224,7 +226,7 @@ async function analyzeWithOllama(res, imageDataUrl) {
   }
 
   const apiData = JSON.parse(responseText);
-  const extracted = JSON.parse(stripJsonFences(apiData.response || ""));
+  const extracted = parseJsonFromModelText(apiData.response || "");
   return sendJson(res, 200, {
     ok: true,
     provider: "ollama",
@@ -236,6 +238,34 @@ async function analyzeWithOllama(res, imageDataUrl) {
 
 function getAiProvider() {
   return String(process.env.AI_PROVIDER || "ollama").trim().toLowerCase();
+}
+
+function getRequestImages(body) {
+  const input = Array.isArray(body && body.imageDataUrls)
+    ? body.imageDataUrls
+    : [body && body.imageDataUrl];
+
+  return input
+    .map((value) => String(value || ""))
+    .filter((value) => /^data:image\/(png|jpe?g|webp);base64,/i.test(value));
+}
+
+function buildAnalysisPrompt(body) {
+  const tileNotes = Array.isArray(body && body.tileNotes) ? body.tileNotes : [];
+  const tileText = tileNotes.length
+    ? ` Additional images after the first are zoomed vertical tiles from the same screenshot for OCR. Tile metadata: ${JSON.stringify(tileNotes).slice(0, 4000)}. Use the first full screenshot for image_regions coordinates.`
+    : "";
+
+  return [
+    "Analyze this full e-commerce product screenshot for resale listing preparation.",
+    "Return only valid JSON matching the schema. Do not wrap it in markdown.",
+    "Extract every visible product detail exactly as shown.",
+    "Use the zoomed tiles to read small text, prices, options, shipping, descriptions, ratings, and reviews.",
+    "Return tight image_regions for each visible product photo in the screenshot.",
+    "Coordinates must be integers from 0 to 1000 relative to the first full screenshot.",
+    "Create ready-to-copy Facebook, Instagram, and TikTok captions using only visible facts.",
+    tileText
+  ].join(" ");
 }
 
 function getActiveModel() {
@@ -250,6 +280,20 @@ function stripJsonFences(text) {
     .replace(/^```(?:json)?/i, "")
     .replace(/```$/i, "")
     .trim();
+}
+
+function parseJsonFromModelText(text) {
+  const stripped = stripJsonFences(text);
+  try {
+    return JSON.parse(stripped);
+  } catch {
+    const firstObject = stripped.indexOf("{");
+    const lastObject = stripped.lastIndexOf("}");
+    if (firstObject !== -1 && lastObject > firstObject) {
+      return JSON.parse(stripped.slice(firstObject, lastObject + 1));
+    }
+    throw new Error("No JSON object found in AI response.");
+  }
 }
 
 function extractOutputText(apiData) {

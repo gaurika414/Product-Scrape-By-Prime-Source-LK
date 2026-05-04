@@ -22,23 +22,25 @@
         <section class="upload-panel">
           <div class="panel-head">
             <div>
-              <p class="eyebrow">Screenshot</p>
-              <h2>Upload Product Page</h2>
+              <p class="eyebrow">Screenshots</p>
+              <h2>Upload Product Pages</h2>
             </div>
             <button id="clearBtn" class="icon-button" type="button">Clear</button>
           </div>
 
           <label id="dropZone" class="drop-zone">
-            <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/*">
-            <span class="drop-title">Choose screenshot</span>
-            <span class="drop-subtitle">Temu, AliExpress, Shein, or any product page</span>
+            <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/*" multiple>
+            <span class="drop-title">Choose up to 10 screenshots</span>
+            <span class="drop-subtitle">Temu, AliExpress, Shein, or any product pages</span>
           </label>
+
+          <div id="fileList" class="file-list"></div>
 
           <div id="previewWrap" class="preview-wrap is-hidden">
             <img id="previewImage" alt="Uploaded product screenshot preview">
           </div>
 
-          <button id="analyzeBtn" class="primary-button" type="button" disabled>Analyze Screenshot</button>
+          <button id="analyzeBtn" class="primary-button" type="button" disabled>Analyze Screenshots</button>
           <p id="errorText" class="error-text" role="alert"></p>
         </section>
 
@@ -48,12 +50,15 @@
               <p class="eyebrow">Result</p>
               <h2>Product Details</h2>
             </div>
-            <button id="copyAllBtn" class="secondary-button" type="button" disabled>Copy All Text</button>
+            <div class="result-actions">
+              <button id="copyBatchBtn" class="secondary-button" type="button" disabled>Copy Batch</button>
+              <button id="copyAllBtn" class="secondary-button" type="button" disabled>Copy Current</button>
+            </div>
           </div>
 
           <div id="emptyState" class="empty-state">
             <strong>No analysis yet</strong>
-            <span>Upload a product screenshot to extract details and crop visible product images.</span>
+            <span>Upload one or more product screenshots to extract details and crop visible product images.</span>
           </div>
 
           <div id="resultContent" class="result-content is-hidden">
