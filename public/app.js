@@ -23,7 +23,7 @@ const els = {
   analyzeBtn: document.querySelector("#analyzeBtn"),
   clearBtn: document.querySelector("#clearBtn"),
   errorText: document.querySelector("#errorText"),
-  statusPill: document.querySelector("#statusPill"),
+  toastHost: document.querySelector("#toastHost"),
   emptyState: document.querySelector("#emptyState"),
   resultContent: document.querySelector("#resultContent"),
   copyAllBtn: document.querySelector("#copyAllBtn"),
@@ -32,9 +32,7 @@ const els = {
   productTitle: document.querySelector("#productTitle"),
   priceText: document.querySelector("#priceText"),
   detailsGrid: document.querySelector("#detailsGrid"),
-  fullTextOutput: document.querySelector("#fullTextOutput"),
-  imageGrid: document.querySelector("#imageGrid"),
-  downloadAllBtn: document.querySelector("#downloadAllBtn")
+  fullTextOutput: document.querySelector("#fullTextOutput")
 };
 
 els.fileInput.addEventListener("change", () => setFiles(Array.from(els.fileInput.files || [])));
@@ -58,17 +56,8 @@ els.analyzeBtn.addEventListener("click", analyzeBatch);
 els.clearBtn.addEventListener("click", resetApp);
 els.copyAllBtn.addEventListener("click", () => copyText(getSelectedText(), "Copied current"));
 els.copyBatchBtn.addEventListener("click", () => copyText(buildBatchText(), "Copied batch"));
-els.downloadAllBtn.addEventListener("click", downloadAllImages);
 els.providerSelect.addEventListener("change", () => applyProviderDefaults(false));
 els.saveSettingsBtn.addEventListener("click", () => saveSettingsFromForm());
-
-document.querySelectorAll("[data-caption]").forEach((button) => {
-  button.addEventListener("click", () => {
-    const key = button.getAttribute("data-caption");
-    const text = getSelectedItem()?.result?.social_listing_text?.[key] || "";
-    copyText(text, `Copied ${key}`);
-  });
-});
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
@@ -169,10 +158,6 @@ async function analyzeBatch() {
       if (!response.ok) throw new Error(payload.detail || payload.error || "Analysis failed");
 
       item.result = payload.result;
-      item.crops = await cropProductImages(item.dataUrl, item.result.image_regions || []);
-      if (!item.crops.length) {
-        item.crops = await detectVisualCrops(item.dataUrl);
-      }
       item.status = "Done";
       renderFileList();
       renderSelectedResult();
@@ -240,7 +225,7 @@ function renderSelectedResult() {
   els.resultContent.classList.remove("is-hidden");
   els.copyAllBtn.disabled = false;
   els.copyBatchBtn.disabled = !state.items.some((batchItem) => batchItem.result);
-  els.sourcePlatform.textContent = result.source_platform || "Unknown source";
+  els.sourcePlatform.textContent = "Listing";
   els.productTitle.textContent = result.product_title || "Untitled product";
   els.priceText.textContent = compactJoin([result.currency, result.price]) || result.original_price || "";
 
@@ -251,8 +236,6 @@ function renderSelectedResult() {
     ["Original price", result.original_price],
     ["Discount", result.discount],
     ["Rating", result.rating],
-    ["Reviews", result.review_count],
-    ["Sold", result.sold_count],
     ["Shipping", result.shipping],
     ["Delivery", result.delivery],
     ["Returns", result.returns_policy],
@@ -270,42 +253,6 @@ function renderSelectedResult() {
   `).join("");
 
   els.fullTextOutput.value = buildFullText(result);
-  renderImages();
-}
-
-function renderImages() {
-  const item = getSelectedItem();
-  const crops = item?.crops || [];
-  els.imageGrid.innerHTML = "";
-  els.downloadAllBtn.disabled = crops.length === 0;
-
-  if (!crops.length) {
-    els.imageGrid.innerHTML = `
-      <div class="detail-item">
-        <span>Images</span>
-        <strong>No clear product image crops were detected in this screenshot.</strong>
-      </div>
-    `;
-    return;
-  }
-
-  for (const crop of crops) {
-    const card = document.createElement("article");
-    card.className = "image-card";
-    card.innerHTML = `
-      <img src="${crop.dataUrl}" alt="${escapeHtml(crop.label)}">
-      <div class="image-card-body">
-        <strong>${escapeHtml(crop.label)}</strong>
-        <div class="image-actions">
-          <button class="small-button" type="button" data-action="copy">Copy</button>
-          <button class="small-button" type="button" data-action="download">Download</button>
-        </div>
-      </div>
-    `;
-    card.querySelector('[data-action="copy"]').addEventListener("click", () => copyImage(crop));
-    card.querySelector('[data-action="download"]').addEventListener("click", () => downloadDataUrl(crop.dataUrl, crop.filename));
-    els.imageGrid.appendChild(card);
-  }
 }
 
 async function prepareImagesForAi(dataUrl) {
@@ -554,46 +501,87 @@ function constrainBox(x, y, w, h, imageW, imageH) {
 }
 
 function buildFullText(result) {
-  const lines = [];
-  lines.push(result.product_title || "Untitled product", "");
-  addLine(lines, "Source", result.source_platform);
-  addLine(lines, "Brand", result.brand);
-  addLine(lines, "Store", result.store_name);
-  addLine(lines, "Price", compactJoin([result.currency, result.price]));
-  addLine(lines, "Original Price", result.original_price);
-  addLine(lines, "Discount", result.discount);
-  addLine(lines, "Rating", result.rating);
-  addLine(lines, "Reviews", result.review_count);
-  addLine(lines, "Sold", result.sold_count);
-  addLine(lines, "Shipping", result.shipping);
-  addLine(lines, "Delivery", result.delivery);
-  addLine(lines, "Returns", result.returns_policy);
-  addLine(lines, "Stock", result.stock_status);
+  const lines = buildDetailedListing(result);
+  const hashtags = normalizeHashtags(result.hashtags, result);
 
-  if (hasText(result.visible_description)) lines.push("", "Description:", result.visible_description);
-
-  if (result.key_bullets?.length) {
-    lines.push("", "Key Details:");
-    result.key_bullets.forEach((item) => lines.push(`- ${item}`));
-  }
-
-  if (result.product_specs?.length) {
-    lines.push("", "Specifications:");
-    result.product_specs.forEach((spec) => lines.push(`- ${spec.name}: ${spec.value}`));
-  }
-
-  if (result.social_listing_text) {
-    lines.push("", "Facebook:", result.social_listing_text.facebook || "");
-    lines.push("", "Instagram:", result.social_listing_text.instagram || "");
-    lines.push("", "TikTok:", result.social_listing_text.tiktok || "");
-  }
-
-  if (result.missing_or_unclear?.length) {
-    lines.push("", "Missing or unclear:");
-    result.missing_or_unclear.forEach((item) => lines.push(`- ${item}`));
+  if (hashtags.length) {
+    lines.push("", hashtags.join(" "));
   }
 
   return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function buildDetailedListing(result) {
+  const lines = [];
+  lines.push(`✨ ${result.product_title || "New arrival"}`);
+
+  const price = compactJoin([result.currency, result.price]);
+  const highlights = [];
+  if (price) highlights.push(`💰 Price: ${price}`);
+  if (result.original_price) highlights.push(`🏷️ Original Price: ${result.original_price}`);
+  if (result.discount) highlights.push(`🔥 Discount: ${result.discount}`);
+  if (result.rating) highlights.push(`⭐ Rating: ${result.rating}`);
+  if (result.shipping) highlights.push(`🚚 Shipping: ${result.shipping}`);
+  if (result.delivery) highlights.push(`📦 Delivery: ${result.delivery}`);
+  if (result.returns_policy) highlights.push(`↩️ Returns: ${result.returns_policy}`);
+  if (result.stock_status) highlights.push(`📌 Stock: ${result.stock_status}`);
+  if (result.brand) highlights.push(`🏷️ Brand: ${result.brand}`);
+  if (result.store_name) highlights.push(`🏪 Store: ${result.store_name}`);
+
+  if (highlights.length) {
+    lines.push("");
+    lines.push(...highlights);
+  }
+
+  const optionLines = (result.available_options || [])
+    .filter((option) => hasText(option.name) || option.values?.length)
+    .map((option) => `• ${option.name || "Option"}: ${(option.values || []).join(", ")}`);
+  if (optionLines.length) {
+    lines.push("", "🎨 Available Options:", ...optionLines);
+  }
+
+  const specLines = (result.product_specs || [])
+    .filter((spec) => hasText(spec.name) || hasText(spec.value))
+    .map((spec) => `• ${spec.name || "Spec"}: ${spec.value || ""}`.trim());
+  if (specLines.length) {
+    lines.push("", "📋 Product Specs:", ...specLines);
+  }
+
+  if (result.visible_description) {
+    lines.push("", "📝 Details:", result.visible_description);
+  }
+
+  if (result.key_bullets?.length) {
+    lines.push("", "✅ Highlights:");
+    result.key_bullets.slice(0, 5).forEach((item) => lines.push(`• ${item}`));
+  }
+
+  return lines;
+}
+
+function normalizeHashtags(hashtags, result = {}) {
+  const source = Array.isArray(hashtags) ? hashtags : [];
+  const normalized = source
+    .map((tag) => String(tag || "").trim())
+    .filter(Boolean)
+    .map((tag) => tag.startsWith("#") ? tag : `#${tag.replace(/\s+/g, "")}`)
+    .slice(0, 16);
+  if (normalized.length) return normalized;
+
+  const words = [
+    "PrimeSourceLK",
+    "SriLanka",
+    "OnlineShopping",
+    result.brand,
+    result.store_name,
+    ...String(result.product_title || "").split(/\s+/).filter((word) => word.length > 3).slice(0, 5)
+  ];
+
+  return [...new Set(words)]
+    .filter(Boolean)
+    .map((word) => `#${String(word).replace(/[^a-z0-9]/gi, "")}`)
+    .filter((tag) => tag.length > 1)
+    .slice(0, 12);
 }
 
 function buildBatchText() {
@@ -629,20 +617,46 @@ function setBusy(isBusy) {
   els.analyzeBtn.textContent = isBusy
     ? "Analyzing Batch..."
     : `Analyze ${state.items.length || ""} Screenshot${state.items.length === 1 ? "" : "s"}`.trim();
+  els.analyzeBtn.classList.toggle("is-busy", isBusy);
   els.clearBtn.disabled = isBusy;
 }
 
 function setStatus(text, mode) {
-  els.statusPill.textContent = text;
-  els.statusPill.className = `status-pill${mode ? ` is-${mode}` : ""}`;
+  if (mode === "ready" || text === "Ready") return;
+  showToast(text, mode);
 }
 
 function showError(message) {
-  els.errorText.textContent = message;
+  const clean = sanitizeMessage(message);
+  els.errorText.textContent = clean;
+  showToast(clean, "error");
 }
 
 function clearError() {
   els.errorText.textContent = "";
+}
+
+function showToast(message, mode = "done") {
+  if (!els.toastHost) return;
+
+  const toast = document.createElement("div");
+  toast.className = `toast is-${mode}`;
+  toast.textContent = message;
+  els.toastHost.appendChild(toast);
+
+  const lifetime = mode === "working" ? 1800 : 2600;
+  window.setTimeout(() => {
+    toast.classList.add("is-leaving");
+    window.setTimeout(() => toast.remove(), 190);
+  }, lifetime);
+}
+
+function sanitizeMessage(message) {
+  const text = String(message || "Something went wrong.").trim();
+  if (text.startsWith("{") || text.length > 260) {
+    return "The AI response could not be formatted. Try analyzing again or use one screenshot at a time.";
+  }
+  return text;
 }
 
 function resetApp() {
@@ -654,6 +668,7 @@ function resetApp() {
   els.previewWrap.classList.add("is-hidden");
   els.analyzeBtn.disabled = true;
   els.analyzeBtn.textContent = "Analyze Screenshots";
+  els.analyzeBtn.classList.remove("is-busy");
   els.emptyState.classList.remove("is-hidden");
   els.resultContent.classList.add("is-hidden");
   els.copyAllBtn.disabled = true;

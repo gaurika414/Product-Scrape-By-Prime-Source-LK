@@ -41,8 +41,20 @@ const productSchema = {
     delivery: { type: "string" },
     returns_policy: { type: "string" },
     stock_status: { type: "string" },
+    product_url: { type: "string" },
     visible_description: { type: "string" },
     key_bullets: { type: "array", items: { type: "string" } },
+    available_options: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: { type: "string" },
+          values: { type: "array", items: { type: "string" } }
+        }
+      }
+    },
     product_specs: {
       type: "array",
       items: {
@@ -77,6 +89,8 @@ const productSchema = {
         tiktok: { type: "string" }
       }
     },
+    listing_text: { type: "string" },
+    hashtags: { type: "array", items: { type: "string" } },
     missing_or_unclear: { type: "array", items: { type: "string" } },
     confidence: { type: "string" }
   }
@@ -309,7 +323,7 @@ function getRequestImages(body) {
 function buildAnalysisPrompt(body) {
   const tileNotes = Array.isArray(body && body.tileNotes) ? body.tileNotes : [];
   const tileText = tileNotes.length
-    ? ` Additional images after the first are zoomed vertical tiles from the same screenshot for OCR. Tile metadata: ${JSON.stringify(tileNotes).slice(0, 4000)}. Use the first full screenshot for image_regions coordinates.`
+    ? ` Additional images after the first are zoomed vertical tiles from the same screenshot for OCR. Tile metadata: ${JSON.stringify(tileNotes).slice(0, 4000)}. Use the first full screenshot as the overall product-page context.`
     : "";
 
   return [
@@ -317,9 +331,13 @@ function buildAnalysisPrompt(body) {
     "Return only valid JSON matching the schema. Do not wrap it in markdown.",
     "Extract every visible product detail exactly as shown.",
     "Use the zoomed tiles to read small text, prices, options, shipping, descriptions, ratings, and reviews.",
-    "Return tight image_regions for each visible product photo in the screenshot.",
-    "Coordinates must be integers from 0 to 1000 relative to the first full screenshot.",
-    "Create ready-to-copy Facebook, Instagram, and TikTok captions using only visible facts.",
+    "Do not identify or crop product images. Return image_regions as an empty array.",
+    "Create one detailed resale listing in listing_text using tasteful emojis, short lines, and only visible facts.",
+    "The listing must include every visible useful field: name/title, price, original price, discount, rating, shipping, delivery, return policy, stock, brand, store, options, specifications, and visible description when available.",
+    "Do not create separate Facebook, Instagram, or TikTok sections. Keep social_listing_text values empty.",
+    "Do not mention source platform, reviews, sold count, or missing/unclear details in listing_text.",
+    "Create 8 to 14 relevant hashtags in hashtags. Put hashtags at the bottom when the app formats the final text.",
+    "Do not invent unavailable specifications.",
     tileText
   ].join(" ");
 }
@@ -402,12 +420,15 @@ function extractOutputText(apiData) {
 function normalizeExtraction(result) {
   const normalized = result && typeof result === "object" ? result : {};
   normalized.key_bullets = Array.isArray(normalized.key_bullets) ? normalized.key_bullets : [];
+  normalized.available_options = Array.isArray(normalized.available_options) ? normalized.available_options : [];
   normalized.product_specs = Array.isArray(normalized.product_specs) ? normalized.product_specs : [];
   normalized.missing_or_unclear = Array.isArray(normalized.missing_or_unclear) ? normalized.missing_or_unclear : [];
   normalized.image_regions = Array.isArray(normalized.image_regions) ? normalized.image_regions : [];
   normalized.social_listing_text = normalized.social_listing_text && typeof normalized.social_listing_text === "object"
     ? normalized.social_listing_text
     : { facebook: "", instagram: "", tiktok: "" };
+  normalized.listing_text = typeof normalized.listing_text === "string" ? normalized.listing_text : "";
+  normalized.hashtags = Array.isArray(normalized.hashtags) ? normalized.hashtags : [];
   return normalized;
 }
 

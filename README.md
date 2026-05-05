@@ -1,6 +1,6 @@
 # Product Scrape By Prime Source LK
 
-Product Scrape By Prime Source LK is a local web app for extracting product information from e-commerce screenshots. Version `v0.4.0` adds Gemini as the recommended cloud AI provider and adds AI settings directly in the app.
+Product Scrape By Prime Source LK is a local web app for extracting product information from e-commerce screenshots. Version `v0.5.0` improves listing output quality and adds clearer UI feedback during analysis.
 
 ## Features
 
@@ -9,13 +9,13 @@ Product Scrape By Prime Source LK is a local web app for extracting product info
 - Copy the current listing or the full batch.
 - Extract visible product title, price, discount, rating, shipping, delivery, and specifications.
 - Generate ready-to-copy listing text.
-- Detect visible product image regions from the screenshot.
-- Use fallback visual crop detection when the AI does not return product image regions.
-- Copy or download cropped product images where supported by the browser.
 - Resize and compress screenshots in the browser before analysis.
 - Tile tall screenshots into zoomed vertical sections for better text extraction.
 - Choose Gemini, OpenAI, or Ollama from the app interface.
 - Set the AI model, API key, and Ollama URL from the app interface.
+- Show animated toast feedback for copy, save, analysis, and error states.
+- Show a spinner while batch analysis is running.
+- Generate a simplified emoji listing format with hashtags.
 - Run locally with a lightweight Node.js server.
 - Dark mode interface.
 

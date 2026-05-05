@@ -9,13 +9,13 @@
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
+    <div id="toastHost" class="toast-host" aria-live="polite"></div>
     <main class="app-shell">
       <header class="topbar">
-        <div>
-          <p class="eyebrow">Prime Source LK</p>
+        <div class="brand-lockup">
           <h1>Product Scrape</h1>
+          <p>By Prime Source LK</p>
         </div>
-        <span id="statusPill" class="status-pill">Ready</span>
       </header>
 
       <section class="workspace">
@@ -82,7 +82,7 @@
 
           <div id="emptyState" class="empty-state">
             <strong>No analysis yet</strong>
-            <span>Upload one or more product screenshots to extract details and crop visible product images.</span>
+            <span>Upload one or more product screenshots to create clean resale listing text.</span>
           </div>
 
           <div id="resultContent" class="result-content is-hidden">
@@ -95,20 +95,10 @@
             </article>
             <div id="detailsGrid" class="details-grid"></div>
             <section class="text-section">
-              <h3>Listing Text</h3>
-              <div class="caption-actions">
-                <button class="small-button" data-caption="facebook" type="button">Copy Facebook</button>
-                <button class="small-button" data-caption="instagram" type="button">Copy Instagram</button>
-                <button class="small-button" data-caption="tiktok" type="button">Copy TikTok</button>
+              <div class="section-head">
+                <h3>Listing Text</h3>
               </div>
               <textarea id="fullTextOutput" readonly></textarea>
-            </section>
-            <section class="image-section">
-              <div class="section-head">
-                <h3>Product Images</h3>
-                <button id="downloadAllBtn" class="small-button" type="button" disabled>Download All</button>
-              </div>
-              <div id="imageGrid" class="image-grid"></div>
             </section>
           </div>
         </section>
