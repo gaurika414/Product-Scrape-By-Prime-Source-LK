@@ -9,6 +9,7 @@ const state = {
 
 const els = {
   fileInput: document.querySelector("#fileInput"),
+  pasteImageBtn: document.querySelector("#pasteImageBtn"),
   providerSelect: document.querySelector("#providerSelect"),
   modelInput: document.querySelector("#modelInput"),
   apiKeyInput: document.querySelector("#apiKeyInput"),
@@ -36,6 +37,8 @@ const els = {
 };
 
 els.fileInput.addEventListener("change", () => setFiles(Array.from(els.fileInput.files || [])));
+els.pasteImageBtn.addEventListener("click", pasteImagesFromClipboard);
+document.addEventListener("paste", handlePasteEvent);
 
 els.dropZone.addEventListener("dragover", (event) => {
   event.preventDefault();
@@ -107,6 +110,77 @@ async function setFiles(files) {
   els.analyzeBtn.disabled = state.items.length === 0;
   setBusy(false);
   setStatus("Ready", "ready");
+}
+
+async function appendFiles(files) {
+  clearError();
+  const available = MAX_FILES - state.items.length;
+  if (available <= 0) {
+    showError(`Maximum ${MAX_FILES} screenshots already added.`);
+    return;
+  }
+
+  const images = files.filter((file) => file.type.startsWith("image/")).slice(0, available);
+  if (!images.length) {
+    showError("No image found to paste.");
+    return;
+  }
+
+  for (const file of images) {
+    if (file.size > MAX_FILE_BYTES) {
+      showError(`${file.name} is over 20 MB and was skipped.`);
+      continue;
+    }
+
+    state.items.push({
+      file,
+      dataUrl: await readAsDataUrl(file),
+      aiImages: [],
+      tileNotes: [],
+      result: null,
+      crops: [],
+      status: "Ready",
+      error: ""
+    });
+  }
+
+  state.selectedIndex = Math.max(0, state.items.length - images.length);
+  renderFileList();
+  renderSelectedPreview();
+  renderSelectedResult();
+  els.analyzeBtn.disabled = state.items.length === 0;
+  setBusy(false);
+  showToast("Image pasted", "done");
+}
+
+async function pasteImagesFromClipboard() {
+  try {
+    if (!navigator.clipboard || !navigator.clipboard.read) {
+      throw new Error("Clipboard image paste is not supported in this browser. Use Ctrl+V after copying an image.");
+    }
+
+    const items = await navigator.clipboard.read();
+    const files = [];
+    for (const item of items) {
+      const imageType = item.types.find((type) => type.startsWith("image/"));
+      if (!imageType) continue;
+
+      const blob = await item.getType(imageType);
+      files.push(new File([blob], `pasted-screenshot-${Date.now()}-${files.length + 1}.png`, { type: imageType }));
+    }
+
+    await appendFiles(files);
+  } catch (error) {
+    showError(error.message || "Could not read image from clipboard.");
+  }
+}
+
+async function handlePasteEvent(event) {
+  const files = Array.from(event.clipboardData?.files || []).filter((file) => file.type.startsWith("image/"));
+  if (!files.length) return;
+
+  event.preventDefault();
+  await appendFiles(files);
 }
 
 async function analyzeBatch() {
@@ -233,7 +307,7 @@ function renderSelectedResult() {
     ["File", item.file.name],
     ["Brand", result.brand],
     ["Store", result.store_name],
-    ["Original price", result.original_price],
+    ["Price", result.original_price],
     ["Discount", result.discount],
     ["Rating", result.rating],
     ["Shipping", result.shipping],
@@ -517,8 +591,8 @@ function buildDetailedListing(result) {
 
   const price = compactJoin([result.currency, result.price]);
   const highlights = [];
-  if (price) highlights.push(`💰 Price: ${price}`);
-  if (result.original_price) highlights.push(`🏷️ Original Price: ${result.original_price}`);
+  if (price) highlights.push(`💰 Discounted Price: ${price}`);
+  if (result.original_price) highlights.push(`🏷️ Price: ${result.original_price}`);
   if (result.discount) highlights.push(`🔥 Discount: ${result.discount}`);
   if (result.rating) highlights.push(`⭐ Rating: ${result.rating}`);
   if (result.shipping) highlights.push(`🚚 Shipping: ${result.shipping}`);

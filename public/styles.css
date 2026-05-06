@@ -238,6 +238,11 @@ button:not(:disabled):active {
   font-weight: 850;
 }
 
+.full-button {
+  width: 100%;
+  margin-top: 10px;
+}
+
 .primary-button.is-busy {
   position: relative;
   color: transparent;

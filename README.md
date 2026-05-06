@@ -1,10 +1,12 @@
 # Product Scrape By Prime Source LK
 
-Product Scrape By Prime Source LK is a local web app for extracting product information from e-commerce screenshots. Version `v0.5.0` improves listing output quality and adds clearer UI feedback during analysis.
+Product Scrape By Prime Source LK is a local web app for extracting product information from e-commerce screenshots. Version `v0.6.0` adds image paste support and clearer resale price labels.
 
 ## Features
 
-- Upload up to 10 product screenshots at a time.
+- Upload, drag, or paste up to 10 product screenshots at a time.
+- Paste screenshots from the clipboard with the `Paste Image` button.
+- Paste screenshots from the clipboard with `Ctrl + V`.
 - Navigate results per screenshot.
 - Copy the current listing or the full batch.
 - Extract visible product title, price, discount, rating, shipping, delivery, and specifications.
@@ -16,6 +18,8 @@ Product Scrape By Prime Source LK is a local web app for extracting product info
 - Show animated toast feedback for copy, save, analysis, and error states.
 - Show a spinner while batch analysis is running.
 - Generate a simplified emoji listing format with hashtags.
+- Label current sale price as `Discounted Price`.
+- Label old/original price as `Price`.
 - Run locally with a lightweight Node.js server.
 - Dark mode interface.
 

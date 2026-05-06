@@ -30,9 +30,10 @@
 
           <label id="dropZone" class="drop-zone">
             <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/*" multiple>
-            <span class="drop-title">Choose up to 10 screenshots</span>
-            <span class="drop-subtitle">Temu, AliExpress, Shein, or any product pages</span>
+            <span class="drop-title">Choose or paste up to 10 screenshots</span>
+            <span class="drop-subtitle">Upload files, drag images here, or paste copied screenshots</span>
           </label>
+          <button id="pasteImageBtn" class="secondary-button full-button" type="button">Paste Image</button>
 
           <section class="settings-panel" aria-label="AI settings">
             <div class="field-row">
@@ -82,7 +83,7 @@
 
           <div id="emptyState" class="empty-state">
             <strong>No analysis yet</strong>
-            <span>Upload one or more product screenshots to create clean resale listing text.</span>
+            <span>Upload, drag, or paste one or more product screenshots to create clean resale listing text.</span>
           </div>
 
           <div id="resultContent" class="result-content is-hidden">
